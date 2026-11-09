@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: order-service
+  cloud:
+    loadbalancer:
+      cache:
+        ttl: 5s
+
+server:
+  port: 8080
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
+    registry-fetch-interval-seconds: 5
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${random.value}
+    lease-renewal-interval-in-seconds: 5
+    lease-expiration-duration-in-seconds: 15

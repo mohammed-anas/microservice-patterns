@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: eureka-server
+
+server:
+  port: 8761
+
+eureka:
+  instance:
+    hostname: eureka-server
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
+  server:
+    # Lab settings so a stopped container leaves the registry in seconds.
+    # Production keeps self-preservation on and a 60s eviction interval.
+    enable-self-preservation: false
+    eviction-interval-timer-in-ms: 5000

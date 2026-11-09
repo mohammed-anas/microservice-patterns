@@ -1,0 +1,106 @@
+name: ecommerce
+
+x-java-opts: &java-opts
+  JAVA_TOOL_OPTIONS: "-Xmx256m -XX:+ExitOnOutOfMemoryError"
+
+x-app-health: &app-health
+  test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/8080"]
+  interval: 5s
+  timeout: 3s
+  retries: 24
+  start_period: 90s
+
+services:
+  eureka-server:
+    build:
+      context: ./eureka-server
+    environment:
+      <<: *java-opts
+    ports:
+      - "8761:8761"
+    networks:
+      - ecommerce
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/8761"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 90s
+
+  order-service:
+    build:
+      context: ./order-service
+    environment:
+      <<: *java-opts
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - ecommerce
+    expose:
+      - "8080"
+    healthcheck: *app-health
+
+  payment-service:
+    build:
+      context: ./payment-service
+    environment:
+      <<: *java-opts
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - ecommerce
+    expose:
+      - "8080"
+    healthcheck: *app-health
+    deploy:
+      replicas: 2
+
+  inventory-service:
+    build:
+      context: ./inventory-service
+    environment:
+      <<: *java-opts
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - ecommerce
+    expose:
+      - "8080"
+    healthcheck: *app-health
+    deploy:
+      replicas: 2
+
+  demo:
+    image: curlimages/curl:8.17.0
+    profiles: ["demo"]
+    networks:
+      - ecommerce
+    depends_on:
+      order-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        i=0
+        while [ "$$i" -lt 20 ]; do
+          if curl -sfS "http://order-service:8080/orders"; then
+            printf '\n'
+            exit 0
+          fi
+          i=$$((i + 1))
+          sleep 3
+        done
+        echo "order-service did not return a successful discovery call" >&2
+        exit 1
+
+networks:
+  ecommerce:
+    driver: bridge
