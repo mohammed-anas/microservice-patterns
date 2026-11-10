@@ -1,8 +1,13 @@
 package com.ecommerce.paymentservice.controllers;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -15,17 +20,45 @@ import java.util.Map;
 @RestController
 public class PaymentController {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentController.class);
+
     @Value("${HOSTNAME:local}")
     private String containerId;
 
     @GetMapping("/payments")
-    public Map<String, String> payment() {
+    public Map<String, String> payment(
+            @RequestParam(defaultValue = "0") long delayMs,
+            @RequestParam(defaultValue = "false") boolean fail,
+            @RequestParam(defaultValue = "false") boolean clientError) {
+        // Lab hook only. A normal call passes none of these and returns the same body as before.
+        applyLabFault(delayMs, fail, clientError);
         return Map.of(
                 "service", "payment-service",
                 "container", containerId,
                 "ip", localIp(),
                 "port", "8080",
                 "message", "Payment processed");
+    }
+
+    private static void applyLabFault(long delayMs, boolean fail, boolean clientError) {
+        long wait = Math.min(Math.max(delayMs, 0), 8_000);
+        if (wait > 0 || fail || clientError) {
+            log.info("lab fault delayMs={} fail={} clientError={}", wait, fail, clientError);
+        }
+        if (wait > 0) {
+            try {
+                Thread.sleep(wait);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "interrupted");
+            }
+        }
+        if (clientError) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "forced client error");
+        }
+        if (fail) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "forced failure");
+        }
     }
 
     private static String localIp() {

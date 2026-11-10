@@ -19,3 +19,86 @@ eureka:
     instance-id: ${spring.application.name}:${random.value}
     lease-renewal-interval-in-seconds: 5
     lease-expiration-duration-in-seconds: 15
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers,circuitbreakerevents,retries,retryevents
+  endpoint:
+    health:
+      # Shows the breaker state while curling the lab. Lock this down on a real edge.
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        # Count-based, not time-based. A quiet minute must not hide failures, and a
+        # time window at this traffic level would never fill minimumNumberOfCalls.
+        slidingWindowType: COUNT_BASED
+        # Last 10 outcomes. One blip cannot open the circuit; a bad streak can.
+        # A high-QPS service would use a larger window (50-100) or a 30-60s time window.
+        slidingWindowSize: 10
+        # Do not judge the dependency until this many calls are in the window.
+        minimumNumberOfCalls: 6
+        # Open when at least half of those calls failed. Resilience4j opens at >= threshold.
+        failureRateThreshold: 50
+        # A healthy call here is a few milliseconds. Two seconds is already stuck.
+        slowCallDurationThreshold: 2s
+        # Open only when slowness is the norm, not when one call was slow.
+        slowCallRateThreshold: 80
+        # How long OPEN lasts before HALF_OPEN. 15s is short so the lab can watch the
+        # probe. Production is usually 30-60s, long enough for the dependency to restart.
+        waitDurationInOpenState: 15s
+        # Three probes, not one. A single lucky success must not close the circuit.
+        permittedNumberOfCallsInHalfOpenState: 3
+        # Flip to HALF_OPEN when the wait ends, even if no call arrives, so actuator shows it.
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        # If the trial calls never finish, go back to OPEN. Long enough to send them by hand.
+        maxWaitDurationInHalfOpenState: 30s
+        writableStackTraceEnabled: false
+        # Anything else is a failure: timeout, connection reset, HTTP 5xx, or an empty
+        # Eureka list. Listing recordExceptions would treat an empty list as a success.
+        ignoreExceptions:
+          # A 4xx is the caller's mistake. It is not evidence the dependency is down,
+          # and it must not dilute the failure rate by counting as a success either.
+          - org.springframework.web.client.HttpClientErrorException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+    instances:
+      # One breaker per downstream service. Payment being down must not block inventory.
+      payment-service:
+        baseConfig: default
+      inventory-service:
+        baseConfig: default
+  retry:
+    configs:
+      default:
+        # Total tries, including the first. Three tries = two retries.
+        maxAttempts: 3
+        waitDuration: 150ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 400ms
+        # Spread retries so every order does not hit the dependency again on the same millisecond.
+        enableRandomizedWait: true
+        randomizedWaitFactor: 0.5
+        # Only transient faults. An empty discovery list is not retried: there is no other
+        # replica to move to, and three immediate attempts would count as three failures
+        # if the breaker sat inside the retry.
+        retryExceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - java.io.IOException
+        ignoreExceptions:
+          - org.springframework.web.client.HttpClientErrorException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+    instances:
+      payment-service:
+        baseConfig: default
+      inventory-service:
+        baseConfig: default
